@@ -3,3 +3,7 @@ fastica-reloaded-gpu
 
 fastica-reloaded-gpu.dSYM/*
 *.user
+
+output_0.aif
+
+output_1.aif

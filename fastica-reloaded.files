@@ -1,0 +1,9 @@
+main_gpu.cpp
+main.cpp
+cl2.hpp
+clmatrix.h
+clmatrix.cpp
+clutil.h
+reduce_add.cl
+clreduceaddkernel.h
+clreduceaddkernel.cpp

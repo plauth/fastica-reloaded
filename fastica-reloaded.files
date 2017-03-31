@@ -7,3 +7,7 @@ clutil.h
 reduce_add.cl
 clreduceaddkernel.h
 clreduceaddkernel.cpp
+clutil.h
+center.cl
+clcenterkernel.h
+clcenterkernel.cpp

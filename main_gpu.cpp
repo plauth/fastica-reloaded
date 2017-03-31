@@ -5,10 +5,23 @@
 #include "clutil.h"
 #include "clmatrix.h"
 #include "clreduceaddkernel.h"
+#include "clcenterkernel.h"
 
 using namespace Eigen;
 using namespace std;
 using namespace boost::program_options;
+
+inline int nextPow2(int x) {
+    --x;
+
+    x |= x >> 1;
+    x |= x >> 2;
+    x |= x >> 4;
+    x |= x >> 8;
+    x |= x >> 16;
+
+    return ++x;
+}
 
 static std::vector<SndfileHandle> retrieveSndfileHandlesFromArgs(variables_map args) {
     std::vector<SndfileHandle> sndfileHandles;
@@ -48,13 +61,15 @@ static void checkAllFilesAreEqual(std::vector<SndfileHandle> sndfileHandles) {
     }
 }
 
-static CLMatrix readSndfiles(std::vector<SndfileHandle> sndfileHandles, cl::Context context, cl::CommandQueue queue) {
+static std::shared_ptr<CLMatrix> readSndfiles(std::vector<SndfileHandle> sndfileHandles, cl::Context context, cl::CommandQueue queue) {
     unsigned long numTracks = sndfileHandles.size();
     long long numFrames = sndfileHandles.back().frames();
-    CLMatrix audioMatrix(context, queue, numTracks, numFrames);
+    long long numFramesPadded = nextPow2(numFrames);
+    std::shared_ptr<CLMatrix> audioMatrix(new CLMatrix(context, queue, numTracks, numFramesPadded));
+    //audioMatrix->setZero();
 
     for(int row = 0; row < numTracks; row++) {
-        sndfileHandles[row].readf(audioMatrix.getData() + row*numFrames, numFrames);
+        sndfileHandles[row].readf(audioMatrix->getData() + row*numFramesPadded, numFrames);
     }
 
     return audioMatrix;
@@ -179,17 +194,13 @@ int main(int argc, char *argv[]) {
         
         auto sndfileHandles = retrieveSndfileHandlesFromArgs(args);
         checkAllFilesAreEqual(sndfileHandles);
-        CLMatrix inputSignalClMatrix = readSndfiles(sndfileHandles,context,mappingQueue);
-        MatrixXf inputSignalMatrix = inputSignalClMatrix.toMatrixXf();
-
-        CLReduceAddKernel::exec<512>(context, mappingQueue, inputSignalClMatrix);
-        CLReduceAddKernel::exec<512>(context, mappingQueue, inputSignalClMatrix);
-        CLReduceAddKernel::exec<256>(context, mappingQueue, inputSignalClMatrix);
-        CLReduceAddKernel::exec<256>(context, mappingQueue, inputSignalClMatrix);
+        std::shared_ptr<CLMatrix> inputSignalClMatrix = readSndfiles(sndfileHandles, context, mappingQueue);
     
         // Stage 1: preprocessing
         // Step 1.1: centering
-        inputSignalMatrix = inputSignalMatrix.colwise() - inputSignalMatrix.rowwise().mean();
+        inputSignalClMatrix = CLCenterKernel::subtract(context, mappingQueue, inputSignalClMatrix, CLReduceAddKernel::getMeans(context, mappingQueue, inputSignalClMatrix));
+        checkErr(mappingQueue.finish(), "clFinish()");
+        MatrixXf inputSignalMatrix = inputSignalClMatrix->toMatrixXf();
 
         
         // Step 1.2: whitening

@@ -19,5 +19,5 @@ cpu:
 	$(CXX) main.cpp $(CXXFLAGS) $(INC_DIRS) $(LIB_DIRS) $(LDFLAGS) -o fastica-reloaded-$@
 
 gpu:
-	$(CXX) main_gpu.cpp clmatrix.cpp $(CXXFLAGS) $(INC_DIRS) $(LIB_DIRS) $(LDFLAGS) $(LDFLAGS_OCL) -o fastica-reloaded-$@ -g
+	$(CXX) main_gpu.cpp clmatrix.cpp clreduceaddkernel.cpp clcenterkernel.cpp $(CXXFLAGS) $(INC_DIRS) $(LIB_DIRS) $(LDFLAGS) $(LDFLAGS_OCL) -o fastica-reloaded-$@ -g
 

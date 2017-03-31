@@ -3,7 +3,7 @@
 
 #include <fstream>
 #include <iostream>
-#include "cl2.hpp"
+//#include "cl2.hpp"
 #include "clmatrix.h"
 #include "clutil.h"
 
@@ -13,45 +13,50 @@ class CLReduceAddKernel
 {
     private:
         CLReduceAddKernel();
+        template<unsigned int WORKGROUP_SIZE> static void launch_kernel(cl::Context context, cl::CommandQueue queue, std::shared_ptr<CLMatrix> input, std::shared_ptr<CLMatrix> workspace, int num_workgroups);
+        static std::shared_ptr<CLMatrix> exec(cl::Context context, cl::CommandQueue queue, std::shared_ptr<CLMatrix> matrix);
     public:
-        template<unsigned int BLOCK_SIZE> static CLMatrix exec(cl::Context context, cl::CommandQueue queue, CLMatrix matrix);
+        static std::shared_ptr<CLMatrix> getMeans(cl::Context context, cl::CommandQueue queue, std::shared_ptr<CLMatrix> input);
+
 };
 
-template<unsigned int BLOCK_SIZE> CLMatrix CLReduceAddKernel::exec(cl::Context context, cl::CommandQueue queue, CLMatrix matrix) {
+template<unsigned int WORKGROUP_SIZE> void CLReduceAddKernel::launch_kernel(cl::Context context, cl::CommandQueue queue, std::shared_ptr<CLMatrix> input, std::shared_ptr<CLMatrix> workspace, int num_workgroups) {
     static std::once_flag    compileFlag;
 
     static cl::Program reduceAddProg;
-    static cl::Kernel reducedAddkernel;
+    static cl::Kernel reduceAddKernel;
 
     std::call_once(compileFlag, [&context]() {
         // load opencl source
         ifstream cl_file("reduce_add.cl");
         string cl_string(istreambuf_iterator<char>(cl_file), (istreambuf_iterator<char>()));
-        //cl::Program::Sources source(1, make_pair(cl_string.c_str(), cl_string.length() + 1));
 
         std::ostringstream options;
-        options<<"-D BLOCK_SIZE="<< BLOCK_SIZE;
+        options<<"-D WORKGROUP_SIZE="<< WORKGROUP_SIZE;
 
         reduceAddProg = cl::Program(context, cl_string.c_str());
         //add devices here?
         cl_int err = reduceAddProg.build(options.str().c_str());
         checkErr(err, "cl::Programm::build()");
 
-        std::cout<<"reduce_add kernel compiled for block size: "<< BLOCK_SIZE <<std::endl;
-        reducedAddkernel = cl::Kernel(reduceAddProg, "add");
+        reduceAddKernel = cl::Kernel(reduceAddProg, "reduce_add", &err);
+        checkErr(err, "cl::Kernel()");
     });
 
-    //Buffer a(begin(in1), end(in1), true, false);
-    //Buffer b(begin(in2), end(in2), true, false);
-    //Buffer c(CL_MEM_READ_WRITE, nElems * sizeof(T));
+    cl_int err;
+    err = reduceAddKernel.setArg(0, input->getBuffer());
+    checkErr(err, "Kernel::setArg(0)");
+    err = reduceAddKernel.setArg(1, workspace->getBuffer());
+    checkErr(err, "Kernel::setArg(1)");
+    //local memory allocation
+    err = reduceAddKernel.setArg(2, 2 * WORKGROUP_SIZE * sizeof(float), NULL);
+    checkErr(err, "Kernel::setArg(2)");
+    unsigned int signal_length = input->getCols();
+    err = reduceAddKernel.setArg(3, sizeof(unsigned int), &signal_length);
+    checkErr(err, "Kernel::setArg(3)");
 
-    //auto addOp = cl::make_kernel<Buffer, Buffer, Buffer>(addkernel);
-
-    //addOp(EnqueueArgs(nElems), a, b, c);
-
-    //cl::copy(c, begin(out), end(out));
-
-    return matrix;
+    err = queue.enqueueNDRangeKernel(reduceAddKernel, cl::NullRange, cl::NDRange(input->getCols()/num_workgroups,input->getRows()), cl::NDRange(WORKGROUP_SIZE, 1));
+    checkErr(err, "enqueueNDRangeKernel()");
 }
 
 #endif // CLREDUCEADDKERNEL_H
